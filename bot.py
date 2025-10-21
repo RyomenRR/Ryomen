@@ -3,8 +3,9 @@ import json
 import logging
 from pyrogram import Client, filters
 from pyrogram.types import Message
-from pyrogram.enums import ChatType
-from tqdm import tqdm # Used for progress bar in channel scanning
+# Import ChatType for filtering groups and supergroups correctly
+from pyrogram.enums import ChatType 
+from tqdm import tqdm 
 
 # --- Configuration and Setup ---
 
@@ -15,7 +16,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Environment variables (Pyrogram requires API_ID and API_HASH)
+# Environment variables
 API_ID = os.getenv("API_ID")
 API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -74,9 +75,10 @@ app = Client(
 
 # --- Admin Command Handlers ---
 
-@app.on_message(filters.command("scan_apks") & filters.private)
+# Use filters.chat_type(ChatType.PRIVATE) for consistency
+@app.on_message(filters.command("scan_apks") & filters.chat_type(ChatType.PRIVATE))
 async def scan_apks_command(client: Client, message: Message):
-    """Admin command to scan the private channel for new APK files and store their IDs."""
+    """Admin command to scan the public channel for new APK files and store their IDs."""
     if message.from_user.id != ADMIN_ID:
         await message.reply_text("🚫 Access Denied. Only the bot admin can run this command.")
         return
@@ -121,10 +123,10 @@ async def scan_apks_command(client: Client, message: Message):
 
     except Exception as e:
         logger.error(f"Error during channel scan: {e}")
-        await initial_message.edit_text(f"❌ An error occurred during the scan: `{e}`")
+        await initial_message.edit_text(f"❌ An error occurred during the scan: `{e}`. Ensure the bot is an admin in the channel.")
 
 
-@app.on_message(filters.command("list_apks") & filters.private)
+@app.on_message(filters.command("list_apks") & filters.chat_type(ChatType.PRIVATE))
 async def list_apks_command(client: Client, message: Message):
     """Lists the currently cached APKs."""
     if message.from_user.id != ADMIN_ID:
@@ -146,7 +148,8 @@ async def list_apks_command(client: Client, message: Message):
 
 # --- Core Auto-Reply Logic Handler ---
 
-@app.on_message(filters.text & (filters.group | filters.supergroup))
+# FIX: Use filters.chat_type() to replace the deprecated filters.supergroup
+@app.on_message(filters.text & filters.chat_type([ChatType.GROUP, ChatType.SUPERGROUP]))
 async def auto_reply_handler(client: Client, message: Message):
     """Listens for trigger messages in groups and replies with the corresponding APK."""
     
@@ -181,22 +184,26 @@ async def auto_reply_handler(client: Client, message: Message):
         await message.reply_document(
             document=target_apk_data['file_id'],
             caption=f"✅ Here is the file: **{target_apk_data['original_name']}**",
-            parse_mode='Markdown'
+            parse_mode='Markdown',
+            quote=True # Reply to the original message
         )
         match_found = True
         
     # If a keyword was used but no specific file was matched, list all files for user help.
     if is_keyword_triggered and not match_found and APK_FILES:
         message_list = ["I found a download request, but I couldn't identify the specific file you want. Available files are:"]
-        for data in APK_FILES.values():
+        # Limit the list length to keep the reply concise
+        for i, data in enumerate(list(APK_FILES.values())[:10]):
             message_list.append(f"- {data['original_name']}")
+            if i == 9 and len(APK_FILES) > 10:
+                message_list.append(f"... and {len(APK_FILES) - 10} more.")
         
         await message.reply_text('\n'.join(message_list), quote=True)
 
 
 # --- Startup and Entry Point ---
 
-@app.on_message(filters.command("start") & filters.private)
+@app.on_message(filters.command("start") & filters.chat_type(ChatType.PRIVATE))
 async def start_command(client: Client, message: Message):
     """Sends a welcome message with instructions."""
     instructions = (
